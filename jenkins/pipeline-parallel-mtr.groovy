@@ -80,13 +80,13 @@ void prepareWorkspace() {
     }
 }
 
-void doTests(String WORKER_ID, String SUITES, String STANDALONE_TESTS = '', boolean UNIT_TESTS = false, boolean CIFS_TESTS = false, boolean KV_TESTS = false, boolean ZENFS_TESTS = false) {
+void doTests(String WORKER_ID, String SUITES, String STANDALONE_TESTS = '', boolean UNIT_TESTS = false, boolean CIFS_TESTS = false, boolean KV_TESTS = false, boolean ZENFS_TESTS = false boolean PS_PROTOCOL_TESTS = false) {
     withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', accessKeyVariable: 'AWS_ACCESS_KEY_ID', credentialsId: AWS_CREDENTIALS_ID, secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
         withCredentials([
             string(credentialsId: 'VAULT_V1_DEV_ROOT_TOKEN', variable: 'VAULT_V1_DEV_ROOT_TOKEN'),
             string(credentialsId: 'VAULT_V2_DEV_ROOT_TOKEN', variable: 'VAULT_V2_DEV_ROOT_TOKEN')]) {
             sh """#!/bin/bash
-                echo "Starting MTR worker ${WORKER_ID}, SUITES: ${SUITES}, STANDALONE_TESTS: ${STANDALONE_TESTS}, UNIT_TESTS: ${UNIT_TESTS}, CIFS_TESTS: ${CIFS_TESTS}, KV_TESTS: ${KV_TESTS}, ZENFS_TESTS: ${ZENFS_TESTS}"
+                echo "Starting MTR worker ${WORKER_ID}, SUITES: ${SUITES}, STANDALONE_TESTS: ${STANDALONE_TESTS}, UNIT_TESTS: ${UNIT_TESTS}, CIFS_TESTS: ${CIFS_TESTS}, KV_TESTS: ${KV_TESTS}, ZENFS_TESTS: ${ZENFS_TESTS} PS_PROTOCOL_TESTS: ${PS_PROTOCOL_TESTS}"
 
                 if [[ "${CIFS_TESTS}" == "true" ]]; then
                     echo "Preparing filesystem for CIFS tests"
@@ -115,6 +115,14 @@ void doTests(String WORKER_ID, String SUITES, String STANDALONE_TESTS = '', bool
                 else
                     echo "Enabling CIFS mtr"
                     CI_FS_MTR=yes
+                fi
+                if [[ "${PS_PROTOCOL_TESTS}" == "false" ]]; then
+                    echo "Disabling PS_PROTOCOL mtr"
+                    WITH_PS_PROTOCOL=no
+                    MTR_ARGS=\${MTR_ARGS//"--ps-protocol"/""}
+                else
+                    echo "Enabling PS_PROTOCOL mtr"
+                    WITH_PS_PROTOCOL=yes
                 fi
                 if [[ "${KV_TESTS}" == "false" ]]; then
                     echo "Disabling Keyring Vault mtr"
@@ -147,7 +155,7 @@ void doTests(String WORKER_ID, String SUITES, String STANDALONE_TESTS = '', bool
     }  // withCredentials
 }
 
-void doTestWorkerJob(Integer WORKER_ID, String SUITES, String STANDALONE_TESTS = '', boolean UNIT_TESTS = false, boolean CIFS_TESTS = false, boolean KV_TESTS = false, boolean ZENFS_TESTS = false) {
+void doTestWorkerJob(Integer WORKER_ID, String SUITES, String STANDALONE_TESTS = '', boolean UNIT_TESTS = false, boolean CIFS_TESTS = false, boolean KV_TESTS = false, boolean ZENFS_TESTS = false, boolean PS_PROTOCOL_TESTS = false) {
     timeout(time: PIPELINE_TIMEOUT, unit: 'HOURS')  {
         script {
             echo "JENKINS_SCRIPTS_BRANCH: ${JENKINS_SCRIPTS_BRANCH}"
@@ -168,7 +176,7 @@ void doTestWorkerJob(Integer WORKER_ID, String SUITES, String STANDALONE_TESTS =
     }
 }
 
-void doTestWorkerJobWithGuard(Integer WORKER_ID, String SUITES, String STANDALONE_TESTS = '', boolean UNIT_TESTS = false, boolean CIFS_TESTS = false, boolean KV_TESTS = false, boolean ZENFS_TESTS = false) {
+void doTestWorkerJobWithGuard(Integer WORKER_ID, String SUITES, String STANDALONE_TESTS = '', boolean UNIT_TESTS = false, boolean CIFS_TESTS = false, boolean KV_TESTS = false, boolean ZENFS_TESTS = false, boolean PS_PROTOCOL_TESTS = false) {
     catchError(buildResult: 'UNSTABLE') {
         script {
             WORKER_ABORTED[WORKER_ID] = true
@@ -284,6 +292,7 @@ void setupTestSuitesSplit() {
             env.WORKER_7_MTR_SUITES = ""
             env.WORKER_8_MTR_SUITES = ""
             env.CI_FS_MTR = 'no'
+            env.WITH_PS_PROTOCOL = 'no'
             env.ZEN_FS_MTR = 'no'
             env.KEYRING_VAULT_MTR = 'no'
         }
@@ -387,6 +396,7 @@ void triggerAbortedTestWorkersRerun() {
                             string(name:'ZEN_FS_MTR', value: env.ZEN_FS_MTR),
                     string(name:'MTR_ARGS', value: env.MTR_ARGS),
                     string(name:'CI_FS_MTR', value: env.CI_FS_MTR),
+                    string(name:'WITH_PS_PROTOCOL', value: env.WITH_PS_PROTOCOL),
                     string(name:'GALERA_PARALLEL_RUN', value: env.GALERA_PARALLEL_RUN),
                             string(name:'MTR_REPEAT', value: env.MTR_REPEAT),
                             string(name:'KEYRING_VAULT_MTR', value: env.KEYRING_VAULT_MTR),
@@ -565,6 +575,10 @@ pipeline {
             choices: 'yes\nno',
             description: 'Run case-insensetive MTR tests',
             name: 'CI_FS_MTR')
+	choice(
+            choices: 'yes\nno',
+            description: 'Run MTR tests with --ps-protocol',
+            name: 'WITH_PS_PROTOCOL')
         choice(
             choices: 'no\nyes',
             description: 'Run MySQL Router unit tests',
@@ -746,11 +760,11 @@ pipeline {
                 stage('Test - 1') {
                     when {
                         beforeAgent true
-                        expression { (env.WORKER_1_MTR_SUITES?.trim() || env.MTR_STANDALONE_TESTS?.trim() || env.CI_FS_MTR?.trim() == 'yes' || env.KEYRING_VAULT_MTR?.trim() == 'yes' || ZEN_FS_MTR_SUPPORTED && (env.ZEN_FS_MTR?.trim() == 'yes') ) }
+                        expression { (env.WORKER_1_MTR_SUITES?.trim() || env.MTR_STANDALONE_TESTS?.trim() || env.CI_FS_MTR?.trim() == 'yes' || env.WITH_PS_PROTOCOL?.trim() == 'yes' || env.KEYRING_VAULT_MTR?.trim() == 'yes' || ZEN_FS_MTR_SUPPORTED && (env.ZEN_FS_MTR?.trim() == 'yes') ) }
                     }
                     agent { label LABEL }
                     steps {
-                        doTestWorkerJobWithGuard(1, "${WORKER_1_MTR_SUITES}", "${MTR_STANDALONE_TESTS}", true, env.CI_FS_MTR?.trim() == 'yes', env.KEYRING_VAULT_MTR?.trim() == 'yes', ZEN_FS_MTR_SUPPORTED && (env.ZEN_FS_MTR?.trim() == 'yes'))
+                        doTestWorkerJobWithGuard(1, "${WORKER_1_MTR_SUITES}", "${MTR_STANDALONE_TESTS}", true, env.CI_FS_MTR?.trim() == 'yes', env.WITH_PS_PROTOCOL?.trim() == 'yes', env.KEYRING_VAULT_MTR?.trim() == 'yes', ZEN_FS_MTR_SUPPORTED && (env.ZEN_FS_MTR?.trim() == 'yes'))
                     }
                 }
                 stage('Test - 2') {
