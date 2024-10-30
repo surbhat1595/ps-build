@@ -117,7 +117,7 @@ pipeline {
             name: 'ROCKSDB_ENGINES_MTR_ARGS')
 
         string(
-            defaultValue: '--unit-tests-report',
+            defaultValue: '--unit-tests-report --big-test',
             description: 'mysql-test-run.pl options, for options like: --big-test --nounit-tests --unit-tests-report',
             name: 'MTR_ARGS')
         string(
@@ -308,8 +308,8 @@ pipeline {
                     " > public_url
                 '''
                 script {
-                    if (!(params.GIT_REPO ==~ 'post-eol')) {
-                        step([$class: 'JUnitResultArchiver', testResults: '*.xml', healthScaleFactor: 1.0])
+                    if (!(params.GIT_REPO =~ 'post-eol')) {
+                        step([$class: 'JUnitResultArchiver', testResults: '**/*.xml', healthScaleFactor: 1.0])
                     }
                 }
                 archiveArtifacts 'build.log.gz,*.xml,public_url'
